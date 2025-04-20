@@ -111,3 +111,81 @@ def unwrap_tuple(x):
 # Classes for Functions.
 
 class Context:
+    """
+    Context class is used by `Function` to store information during the forward pass.
+
+    Attributes:
+        no_grad (bool) : do not save gradient information
+        saved_values (tuple) : tuple of values saved for backward pass
+        saved_tensors (tuple) : alias for saved_values
+    """
+    def __init__(self, no_grad=False):
+        self._saved_values = None
+        self.no_grad = no_grad
+
+    def save_for_backward(self, *values):
+        """
+        Store the given `values` if they need to be used during backpropagation.
+
+        Args:
+            values (list of values) : values to save for backward
+        """
+        if self.no_grad:
+            return
+        self._saved_values = values
+    
+    @property
+    def saved_values(self):
+        assert not self.no_grad, "Doesn't require grad"
+        assert self._saved_values is not None, "Did you forget to save values?"
+        return unwrap_tuple(self._saved_values)
+    
+    @property
+    def saved_tensors(self):
+        return self.saved_values
+    
+class History:
+    """
+    `History` stores the history of `Function` operations that was
+    used to construct the current Variable.
+
+    Attributes:
+        last_fn (:class:`FunctionBase`) : The last Function that was called.
+        ctx (:class:`Context`): The context for that Function.
+        inputs (list of inputs) : The inputs that were given when `last_fn.forward` was called.
+
+    """
+
+    def __init__(self, last_fn=None, ctx=None, inputs=None):
+        self.last_fn = last_fn
+        self.ctx = ctx
+        self.inputs = inputs
+    
+    def backprop_step(self, d_output):
+        """
+        Run one step of backpropagation by calling chain rule.
+
+        Args:
+            d_output : a derivative with respect to this variable
+
+        Returns:
+            list of numbers : a derivative with respect to `inputs`
+        """
+        return self.last_fn.chain_rule(self.ctx, self.inputs, d_output)
+
+class FunctionBase:
+    """
+    A function that can act on :class:`Variable` arguments to
+    produce a :class:`Variable` output, while tracking the internal history.
+
+    Call by :func:`FunctionBase.apply`.
+
+    """
+
+    @staticmethod
+    def variable(raw, history):
+        # Inplement by children class
+        raise NotImplementedError()
+    
+    @classmethod
+    def apply(cls, *vals)
