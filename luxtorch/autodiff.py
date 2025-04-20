@@ -34,10 +34,20 @@ class Variable:
         Args:
             requires_grad (bool): whether to require grad
         """
-        if requires_grad:
-            self.history = History(self)
-        else:
+        if not requires_grad:
             self.history = None
+    
+    def backward(self, d_output=None):
+        """
+        Calls autodiff to fill in the derivatives for the history of this object.
+
+        Args:
+            d_output (number, opt): starting derivative to backpropagate through the model
+                                   (typically left out, and assumed to be 1.0).
+        """
+        if d_output is None:
+            d_output = 1.0
+        backpropagate(self, d_output)
     
     @property
     def derivative(self):
@@ -152,7 +162,7 @@ class History:
     Attributes:
         last_fn (:class:`FunctionBase`) : The last Function that was called.
         ctx (:class:`Context`): The context for that Function.
-        inputs (list of inputs) : The inputs that were given when `last_fn.forward` was called.
+        inputs (list of inputs)(list of Variables or constants) : The inputs that were given when `last_fn.forward` was called.
 
     """
 
@@ -188,4 +198,147 @@ class FunctionBase:
         raise NotImplementedError()
     
     @classmethod
-    def apply(cls, *vals)
+    def apply(cls, *vals):
+        """
+        Apply is called by the user to run the Function.
+        Internally it does three things:
+
+        a) Creates a Context for the function call.
+        b) Calls forward to run the function.
+        c) Attaches the Context to the History of the new variable.
+
+        There is a bit of internal complexity in our implementation
+        to handle both scalars and tensors.
+
+        Args:
+            vals (list of Variables or constants) : The arguments to forward
+
+        Returns:
+            `Variable` : The new variable produced
+
+        """
+        # Go through the variables to see if any needs grad.
+        raw_vals = []
+        need_grad = False
+        for val in vals:
+            if isinstance(val, Variable):
+                if val.history is not None:
+                    need_grad = True
+                val.used += 1
+                raw_vals.append(val.get_data())
+            # constant
+            else:
+                raw_vals.append(val)
+        
+        # Create a context for the function call.
+        ctx = Context(not need_grad)
+        
+        # Call forward with the variables.
+        c = cls.forward(ctx, *raw_vals)
+        assert isinstance(c, cls.data_type), "Expected return typ %s got %s" % (
+            cls.data_type,
+            type(c),
+        )
+
+        # Create a new variable from the result with a new history.
+        back = None
+        if need_grad:
+            back = History(cls, ctx, vals)
+        return cls.variable(cls.data(c), back)
+    
+    @classmethod
+    def chain_rule(cls, ctx, inputs, d_output):
+        """
+        Chain rule is called by the `History` object to run the backward pass.
+
+        Args:
+            ctx (:class:`Context`) : The context from running forward
+            inputs (list of args) : The args that were passed to :func:`FunctionBase.apply` (e.g. :math:`x, y`)
+            d_output (number) : The `d_output` value in the chain rule.
+
+        Returns:
+            list of (`Variable`, number) : A list of non-constant variables with their derivatives
+            (see `is_constant` to remove unneeded variables)
+        """
+        # Call backward with the context and d_output.
+        derivatives =  cls.backward(ctx, d_output)
+        result = []
+        i = 0
+        if isinstance(derivatives, tuple):
+            for val in inputs:
+                if not is_constant(val):
+                    result.append((val, derivatives[i]))
+                    i = i + 1
+        else:
+            for val in inputs:
+                if not is_constant(val):
+                    result.append((val, derivatives))
+                i = i + 1
+        return result
+    
+def is_constant(val):
+    return not isinstance(val, Variable) or val.history is None
+
+def topological_sort(variable):
+    """
+    Computes the topological order of the computation graph.
+
+    Args:
+        variable (:class:`Variable`): The right-most variable
+
+    Returns:
+        list of Variables : Non-constant Variables in topological order
+                            starting from the right.
+    """
+    PermanentMarked = []
+    TemporaryMarked = []
+    result = []
+
+    def visit(n):
+        # Don't do anything with constant.
+        if is_constant(n):
+            return
+        if n.unique_id in PermanentMarked:
+            return
+        elif n.unique_id in TemporaryMarked:
+            raise RuntimeError("Graph is not a DAG")
+        TemporaryMarked.append(n.unique_id)
+
+        if n.is_leaf():
+            pass
+        else:
+            for i in n.history.inputs:
+                visit(i)
+        TemporaryMarked.remove(n.unique_id)
+        PermanentMarked.append(n.unique_id)
+        result.insert(0, n)
+    visit(variable)
+    return result
+
+def backpropagate(variable, deriv):
+    """
+    Runs backpropagation on the computation graph in order to
+    compute derivatives for the leave nodes.
+
+    See :doc:`backpropagate` for details on the algorithm.
+
+    Args:
+        variable (:class:`Variable`): The right-most variable
+        deriv (number) : Its derivative that we want to propagate backward to the leaves.
+
+    No return. Should write to its results to the derivative values of each leaf through `accumulate_derivative`.
+    """
+    # Get the topological order of the graph.
+    order = topological_sort(variable)
+    
+    derivs = {variable.unique_id: deriv}
+
+    for node in order:
+        d_output = derivs[node.unique_id]
+        if node.is_leaf():
+            node.accumulate_derivative(d_output)
+        else:
+            for variable, derivative in node.history.backprop_step(d_output):
+                if variable.unique_id not in derivs:
+                    derivs[variable.unique_id] = 0.0
+                derivs[variable.unique_id] += derivative

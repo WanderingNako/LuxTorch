@@ -1,3 +1,3 @@
 from .module import Module, Parameter
-
-__all__ = ['Module', 'Parameter']
+from .optim import SGD
+from .scalar import Scalar
