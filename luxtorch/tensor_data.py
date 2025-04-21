@@ -45,6 +45,53 @@ def to_index(ordinal, shape, out_index):
         out_index[d] = ordinal % shape[d]
         ordinal = ordinal // shape[d]
 
+def broadcast_index(big_index, big_shape, shape, out_index):
+    """
+    Convert a `big_index` into `big_shape` to a smaller `out_index`
+    into `shape` following broadcasting rules. In this case
+    it may be larger or with more dimensions than the `shape`
+    given. Additional dimensions may need to be mapped to 0 or
+    removed.
+
+    Args:
+        big_index (array-like): multidimensional index of bigger tensor
+        big_shape (array-like): tensor shape of bigger tensor
+        shape (array-like): tensor shape of smaller tensor
+        out_index (array-like): multidimensional index of smaller tensor
+
+    Returns:
+        None : Fills in `out_index`.
+    """
+    for i in range(len(shape)):
+        offset = i + len(big_shape) - len(shape)
+        out_index[i] = big_index[offset] if shape[i] != 1 else 0
+
+def shape_broadcast(shape1, shape2):
+    """
+    Broadcast two shapes to create a new union shape.
+
+    Args:
+        shape1 (tuple) : first shape
+        shape2 (tuple) : second shape
+
+    Returns:
+        tuple : broadcasted shape
+
+    Raises:
+        IndexingError : if cannot broadcast
+    """
+    maxlen = max(len(shape1), len(shape2))
+    if len(shape1) > len(shape2):
+        shape2 = [1 for i in range(maxlen - len(shape2))] + list(shape2)
+    else:
+        shape1 = [1 for i in range(maxlen - len(shape1))] + list(shape1)
+    ans = []
+    for i in range(maxlen):
+        if shape1[i] != shape2[i] and shape1[i] != 1 and shape2[i] != 1:
+            raise IndexingError('violation of broadcasting rules')
+        ans.append(max(shape1[i], shape2[i]))
+    return tuple(ans)
+
 def strides_from_shape(shape):
     layout = [1]
     offset = 1
@@ -91,22 +138,7 @@ class TensorData:
     
     @staticmethod
     def shape_broadcast(shape_a, shape_b):
-        """
-        Broadcast two shapes to create a new union shape.
-
-        Args:
-            shape1 (tuple) : first shape
-            shape2 (tuple) : second shape
-
-        Returns:
-            tuple : broadcasted shape
-
-        Raises:
-            IndexingError : if cannot broadcast
-        """
-        maxlen = max(len(shape_a), len(shape_b))
-        if len(shape_a) > len(shape_b):
-            pass
+        return shape_broadcast(shape_a, shape_b)
         
     
     def index(self, index):
