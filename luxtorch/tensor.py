@@ -1,4 +1,4 @@
-from .autodiff import Variable, History
+from .autodiff import Variable
 from .tensor_data import TensorData
 from . import operators
 """
@@ -14,7 +14,7 @@ class Tensor(Variable):
         _tensor (:class:`TensorData`) : the tensor data storage
         backend : backend object used to implement tensor math (see `tensor_functions.py`)
     """
-    def __init__(self, value, history=History(), name=None, backend=None):
+    def __init__(self, value, history=None, name=None, backend=None):
         assert isinstance(value, TensorData), "data must be a TensorData object"
         assert backend is not None, "backend must be provided"
         super().__init__(history, name=name)
@@ -100,7 +100,8 @@ class Tensor(Variable):
     
     def item(self):
         assert self.size == 1
-        return self[0]
+        it = self.view(1)
+        return it[0]
     
     def exp(self):
         return self.backend.Exp.apply(self)
@@ -208,7 +209,6 @@ class Tensor(Variable):
     
     def backward(self, grad_output=None):
         if grad_output is None:
-            assert self.shape == (1,), "Must provide grad_output if non-scalar"
-            grad_output = Tensor.make([1.0], (1,), backend=self.backend)
+            grad_output = Tensor.make(self.size * [1.0], self.shape, backend=self.backend)
         super().backward(grad_output)
         

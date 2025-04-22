@@ -34,7 +34,9 @@ class Variable:
         Args:
             requires_grad (bool): whether to require grad
         """
-        if not requires_grad:
+        if requires_grad:
+            self.history = History()
+        else:
             self.history = None
     
     def backward(self, d_output=None):
@@ -268,7 +270,7 @@ class FunctionBase:
             for val in inputs:
                 if not is_constant(val):
                     result.append((val, derivatives[i]))
-                    i = i + 1
+                i = i + 1
         else:
             for val in inputs:
                 if not is_constant(val):

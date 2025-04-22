@@ -91,7 +91,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
             @staticmethod
             def backward(ctx, grad_output):
                 a, b = ctx.saved_values
-                grad_a, grad_b = a.expend(grad_output), b.expend(grad_output)
+                grad_a, grad_b = a.expand(grad_output), b.expand(grad_output)
                 return grad_a, grad_b
             
         class Mul(Function):
@@ -264,7 +264,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                 
                 return (
                     tensor_ops.matrix_multiply(grad_output, transpose(t2)),
-                    tensor_ops.matrix_multiply(transpose(t1), grad_output),
+                    tensor_ops.matrix_multiply(transpose(t1), grad_output)
                 )
         
     return Backend

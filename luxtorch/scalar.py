@@ -12,7 +12,7 @@ class Scalar(Variable):
     Attributes:
         data (float): The wrapped scalar value.
     """
-    def __init__(self, value, back=History(), name=None):
+    def __init__(self, value, back=None, name=None):
         super().__init__(back, name)
         self.data = float(value)
     
