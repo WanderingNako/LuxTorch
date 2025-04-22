@@ -75,7 +75,7 @@ class ScalarFunction(FunctionBase):
     """
     @staticmethod
     def forward(ctx, *inputs):
-        """
+        r"""
         Forward call, compute :math:`f(x_0 \ldots x_{n-1})`.
 
         Args:

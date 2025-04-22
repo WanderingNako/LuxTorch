@@ -146,7 +146,7 @@ def addList(ls1, ls2):
     return zipWith(add)(ls1, ls2)
 
 def reduce(fn, start):
-    """
+    r"""
     Higher-order reduce.
 
     Args:
@@ -161,7 +161,7 @@ def reduce(fn, start):
     def process(ls):
         ans = start
         for item in ls:
-            ans = fn(item, start)
+            ans = fn(item, ans)
         return ans
 
     return process

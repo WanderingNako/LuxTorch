@@ -240,7 +240,74 @@ def reduce(fn, start=0.0):
         return out
     return ret
 
+def tensor_matrix_multiply(out, out_shape, out_strides, a_storage, a_shape, a_strides, b_storage, b_shape, b_strides):
+    """
+    Should work for any tensor shapes that broadcast as long as ::
+
+        assert a_shape[-1] == b_shape[-2]
+
+    Args:
+        out (array): storage for `out` tensor
+        out_shape (array): shape for `out` tensor
+        out_strides (array): strides for `out` tensor
+        a_storage (array): storage for `a` tensor
+        a_shape (array): shape for `a` tensor
+        a_strides (array): strides for `a` tensor
+        b_storage (array): storage for `b` tensor
+        b_shape (array): shape for `b` tensor
+        b_strides (array): strides for `b` tensor
+
+    Returns:
+        None : Fills in `out`
+    """
+    out_index = np.array(out_shape)
+    for i in range(len(out)):
+        to_index(i, out_shape, out_index)
+        middle_dim = a_shape[-1]
+        for k in range(middle_dim):
+            a_index = out_index.copy()
+            a_index[-1] = k
+            a_pos = index_to_position(a_index, a_strides)
+
+            b_index = out_index.copy()
+            b_index[-2] = k
+            b_pos = index_to_position(b_index, b_strides) 
+            out[i] += a_storage[a_pos] * b_storage[b_pos]
+            
+
+
+def matrix_multiply(a, b):
+    """
+    Tensor matrix multiply ::
+          for i:
+            for j:
+              for k:
+                out[i, j] += a[i, k] * b[k, j]
+
+    Should work for tensor shapes of 2 dims ::
+
+        assert a.shape[-1] == b.shape[-2]
+
+    Args:
+        a (:class:`Tensor`): tensor data a
+        b (:class:`Tensor`): tensor data b
+
+    Returns:
+        :class:`Tensor` : new tensor data
+    """
+    # Make these always be a 2 dimensional multiply
+    assert len(a.shape) == 2 and len(b.shape) == 2, "Only perform 2 dimensional multiply"
+    assert a.shape[-1] == b.shape[-2], "Can't perform matrix multiplication"
+    ls = []
+    ls.append(a.shape[-2])
+    ls.append(b.shape[-1])
+    out = a.zeros(tuple(ls))
+    tensor_matrix_multiply(*out.tuple(), *a.tuple(), *b.tuple())
+    return out
+
+
 class TensorOps:
     map = map
     zip = zip
     reduce = reduce
+    matrix_multiply = matrix_multiply

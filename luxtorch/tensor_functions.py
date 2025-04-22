@@ -93,3 +93,256 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                 a, b = ctx.saved_values
                 grad_a, grad_b = a.expend(grad_output), b.expend(grad_output)
                 return grad_a, grad_b
+            
+        class Mul(Function):
+            @staticmethod
+            def forward(ctx, a, b):
+                ctx.save_for_backward(a, b)
+                return mul_zip(a, b)
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                a, b = ctx.saved_values
+                grad_a, grad_b = a.expand(b * grad_output), b.expand(a * grad_output)
+                return grad_a, grad_b
+            
+        class Sigmoid(Function):
+            @staticmethod
+            def forward(ctx, a):
+                b = sigmoid_map(a)
+                ctx.save_for_backward(b)
+                return b
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                b = ctx.saved_values
+                return mul_zip(grad_output, mul_zip(b, add_zip(tensor([1.0]), neg_map(b))))
+        
+        class ReLU(Function):
+            @staticmethod
+            def forward(ctx, a):
+                return relu_map(a)
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                a = ctx.saved_values
+                return relu_back_zip(a, grad_output)
+        
+        class Log(Function):
+            @staticmethod
+            def forward(ctx, a):
+                ctx.save_for_backward(a)
+                return log_map(a)
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                a = ctx.saved_values
+                return log_back_zip(a, grad_output)
+        
+        class Exp(Function):
+            @staticmethod
+            def forward(ctx, a):
+                b = exp_map(a)
+                ctx.save_for_backward(b)
+                return b
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                b = ctx.saved_values
+                return mul_zip(b, grad_output)
+            
+        class Sum(Function):
+            @staticmethod
+            def forward(ctx, a, dim):
+                ctx.save_for_backward(a.shape, dim)
+                if dim is not None:
+                    return add_reduce(a, dim)
+                else:
+                    # Flatten
+                    return add_reduce(
+                        a.contiguous().view(int(operators.prod(a.shape))), 0
+                    )
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                a_shape, dim = ctx.saved_values
+                if dim is None:
+                    out = grad_output.zeros(a_shape)
+                    out._tensor._storage[:] = grad_output[0]
+                    return out
+                else:
+                    return grad_output
+            
+        class All(Function):
+            @staticmethod
+            def forward(ctx, a, dim):
+                if dim is not None:
+                    return mul_reduce(a, dim)
+                else:
+                    return mul_reduce(
+                        a.contiguous().view(int(operators.prod(a.shape))), 0
+                    )
+        
+        class LT(Function):
+            @staticmethod
+            def forward(ctx, a, b):
+                ctx.save_for_backward(a.shape, b.shape)
+                return lt_zip(a, b)
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                a_shape, b_shape = ctx.saved_values
+                return grad_output.zeros(a_shape), grad_output.zeros(b_shape)
+            
+        class EQ(Function):
+            @staticmethod
+            def forward(ctx, a, b):
+                ctx.save_for_backward(a.shape, b.shape)
+                return eq_zip(a, b)
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                a_shape, b_shape = ctx.saved_values
+                return grad_output.zeros(a_shape), grad_output.zeros(b_shape)
+
+        class IsClose(Function):
+            @staticmethod
+            def forward(ctx, a, b):
+                return is_close_zip(a,b)
+        
+        class Permute(Function):
+            @staticmethod
+            def forward(ctx, a, order):
+                ctx.save_for_backward(order)
+                return Tensor(a._tensor.permute(*order), backend=a.backend)
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                order = ctx.saved_values
+                un_permute = [0 for _ in range(len(order))]
+                for d1, d2 in enumerate(order):
+                    un_permute[d2] = d1
+                return Tensor(grad_output._tensor.permute(*un_permute), backend=grad_output.backend)
+            
+        class View(Function):
+            @staticmethod
+            def forward(ctx, a, shape):
+                ctx.save_for_backward(a.shape)
+                assert a._tensor.is_contiguous(), "Must be contiguous to view"
+                return Tensor.make(a._tensor._storage, shape, backend=a.backend)
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                original = ctx.saved_values
+                return Tensor.make(
+                    grad_output._tensor._storage, original, backend=grad_output.backend
+                )
+            
+        class Copy(Function):
+            @staticmethod
+            def forward(ctx, a):
+                return id_map(a)
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                return grad_output
+            
+        class MatMul(Function):
+            @staticmethod
+            def forward(ctx, t1, t2):
+                ctx.save_for_backward(t1, t2)
+                return tensor_ops.matrix_multiply(t1, t2)
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                t1, t2 = ctx.saved_values
+
+                def transpose(a):
+                    order = list(range(a.dims))
+                    order[-2], order[-1] = order[-1], order[-2]
+                    return a._new(a._tensor.permute(*order))
+                
+                return (
+                    tensor_ops.matrix_multiply(grad_output, transpose(t2)),
+                    tensor_ops.matrix_multiply(transpose(t1), grad_output),
+                )
+        
+    return Backend
+            
+TensorFunctions = make_tensor_backend(TensorOps)
+# Helpers for Constructing tensors
+def zeros(shape, backend=TensorFunctions):
+    """
+    Produce a zero tensor of size `shape`.
+
+    Args:
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    return Tensor.make([0] * int(operators.prod(shape)), shape, backend=backend)
+
+def rand(shape, backend=TensorFunctions, requires_grad=False):
+    """
+    Produce a random tensor of size `shape`.
+
+    Args:
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+        requires_grad (bool): turn on autodifferentiation
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    vals = [random.random() for _ in range(int(operators.prod(shape)))]
+    tensor = Tensor.make(vals, shape, backend=backend)
+    tensor.requires_grad_(requires_grad)
+    return tensor
+
+def _tensor(ls, shape=None, backend=TensorFunctions, requires_grad=False):
+    """
+    Produce a tensor with data ls and shape `shape`.
+
+    Args:
+        ls (list): data for tensor
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+        requires_grad (bool): turn on autodifferentiation
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    tensor = Tensor.make(ls, shape, backend=backend)
+    tensor.requires_grad_(requires_grad)
+    return tensor
+
+def tensor(ls, backend=TensorFunctions, requires_grad=False):
+    """
+    Produce a tensor with data and shape from ls
+
+    Args:
+        ls (list): data for tensor
+        backend (:class:`Backend`): tensor backend
+        requires_grad (bool): turn on autodifferentiation
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+
+    def gen_shape(ls):
+        if isinstance(ls, (list, tuple)):
+            return [len(ls)] + gen_shape(ls[0])
+        else:
+            return []
+
+    def flatten(ls):
+        if isinstance(ls, (list, tuple)):
+            return [y for x in ls for y in flatten(x)]
+        else:
+            return [ls]
+
+    cur = flatten(ls)
+    shape = gen_shape(ls)
+    return _tensor(cur, tuple(shape), backend=backend, requires_grad=requires_grad)

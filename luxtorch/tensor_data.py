@@ -120,7 +120,7 @@ class TensorData:
         self.dims = len(strides)
         self.size = int(prod(shape))
         self.shape = shape
-        assert len(self._storage) == self.size
+        assert len(self._storage) == self.size, f"len(self._storage)={len(self._storage)}, but self.size={self.size}"
 
     def is_contiguous(self):
         """
