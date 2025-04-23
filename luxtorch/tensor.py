@@ -97,6 +97,9 @@ class Tensor(Variable):
 
     def relu(self):
         return self.backend.ReLU.apply(self)
+    
+    def sqrt(self):
+        return self.backend.Sqrt.apply(self)
 
     def log(self):
         return self.backend.Log.apply(self)
@@ -121,6 +124,13 @@ class Tensor(Variable):
             return self.sum(dim) / self.shape[dim]
         else:
             return self.sum() / self.size
+    
+    def std(self, dim=None):
+        "Compute the standard deviation over dimension `dim`"
+        if dim is not None:
+            return self.backend.Std.apply(self, dim)
+        else:
+            return self.backend.Std.apply(self)
         
     def permute(self, *order):
         "Permute tensor dimensions to *order"

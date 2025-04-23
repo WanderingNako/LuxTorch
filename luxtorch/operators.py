@@ -98,6 +98,14 @@ def relu_back(x, d):
     r"If :math:`f = relu` compute d :math:`d \times f'(x)`"
     return d if x > 0 else 0
 
+def sqrt(x):
+    ":math:`f(x) = \sqrt{x}`"
+    return math.sqrt(x + EPS)
+
+def sqrt_back(x, d):
+    r"If :math:`f(x) = \sqrt{x}` compute d :math:`d \times f'(x)`"
+    return 0.5 * d / sqrt(x + EPS)
+
 def map(fn):
     """
     Higher-order map.

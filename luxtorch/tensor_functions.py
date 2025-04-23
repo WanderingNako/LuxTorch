@@ -37,6 +37,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
     neg_map = tensor_ops.map(operators.neg)
     sigmoid_map = tensor_ops.map(operators.sigmoid)
     relu_map = tensor_ops.map(operators.relu)
+    sqrt_map = tensor_ops.map(operators.sqrt)
     log_map = tensor_ops.map(operators.log)
     exp_map = tensor_ops.map(operators.exp)
     id_map = tensor_ops.map(operators.id)
@@ -49,6 +50,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
     eq_zip = tensor_ops.zip(operators.eq)
     is_close_zip = tensor_ops.zip(operators.is_close)
     relu_back_zip = tensor_ops.zip(operators.relu_back)
+    sqrt_back_zip = tensor_ops.zip(operators.sqrt_back)
     log_back_zip = tensor_ops.zip(operators.log_back)
     inv_back_zip = tensor_ops.zip(operators.inv_back)
 
@@ -128,6 +130,17 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
             def backward(ctx, grad_output):
                 a = ctx.saved_values
                 return relu_back_zip(a, grad_output)
+            
+        class Sqrt(Function):
+            @staticmethod
+            def forward(ctx, a):
+                ctx.save_for_backward(a)
+                return sqrt_map(a)
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                a = ctx.saved_values
+                return sqrt_back_zip(a, grad_output)
         
         class Log(Function):
             @staticmethod
@@ -286,6 +299,24 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                     out = grad_output.zeros(a.shape)
                     out._tensor._storage[:] = grad_output[0] * argmax(a)
                 return grad_output * argmax(a, dim)
+        
+        class Std(Function):
+            @staticmethod
+            def forward(ctx, a, dim):
+                mu = a.mean(dim)
+                ctx.save_for_backward(a, mu, dim)
+                if dim is None:
+                    a = a.contiguous().view(int(operators.prod(a.shape)))
+                out = (a - mu) * (a - mu)
+                return add_reduce(out, dim) / a.shape[dim]
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                a, mu, dim = ctx.saved_values
+                if dim is None:
+                    out = grad_output.zeros(a.shape)
+                    out._tensor._storage[:] = grad_output[0] * (((a - mu) * 2.0 + 1.0) / a.size)
+                return grad_output * (((a - mu) * 2.0 + 1.0) / a.shape[dim])
 
         
     return Backend
@@ -335,6 +366,23 @@ def normal(mean, std, shape, backend=TensorFunctions, requires_grad=False):
         :class:`Tensor` : new tensor
     """
     vals = [random.normalvariate(mu=mean, sigma=std) for _ in range(int(operators.prod(shape)))]
+    tensor = Tensor.make(vals, shape, backend=backend)
+    tensor.requires_grad_(requires_grad)
+    return tensor
+
+def ones(mean, std, shape, backend=TensorFunctions, requires_grad=False):
+    """
+    Produce a ones tensor of size `shape`.
+
+    Args:
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+        requires_grad (bool): turn on autodifferentiation
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    vals = [1.0 for _ in range(int(operators.prod(shape)))]
     tensor = Tensor.make(vals, shape, backend=backend)
     tensor.requires_grad_(requires_grad)
     return tensor
@@ -415,3 +463,40 @@ def argmax(t1, dim=None):
     else:
         out = TensorOps.reduce(operators.max, -1e9)(t1, dim)
     return out == t1
+
+def softmax(t1, dim=None):
+    """
+    Returns the softmax of a tensor along a given dimension.
+
+    Args:
+        t1 (:class:`Tensor`): input tensor
+        dim (int): dimension to reduce
+
+    Returns:
+        :class:`Tensor` : new tensor with the softmax values along the given dimension
+    """
+    if dim is None:
+        flatten = t1.contiguous().view(int(operators.prod(t1.shape)))
+        flatten = flatten.exp()
+        sum_along_axis = flatten.sum(0)
+    else:
+        t1 = t1.exp()
+        sum_along_axis = t1.sum(dim=dim)
+    return t1 / sum_along_axis
+
+def dropout(t1, rate, train):
+    """
+    Dropout positions based on random noise.
+
+    Args:
+        input (:class:`Tensor`): input tensor
+        rate (float): probability [0, 1) of dropping out each position
+        ignore (bool): skip dropout, i.e. do nothing at all
+
+    Returns:
+        :class:`Tensor` : tensor with randoom positions dropped out
+    """
+    if train:
+        bit_tensor = rand(t1.shape, t1.backend) > rate
+        t1 = t1 * bit_tensor
+    return t1
