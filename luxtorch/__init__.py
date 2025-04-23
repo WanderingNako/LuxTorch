@@ -1,5 +1,6 @@
 from .module import Module, Parameter
 from .optim import SGD
 from .scalar import Scalar
-from .tensor_functions import zeros, rand, tensor
+from .tensor_functions import zeros, rand, normal, tensor, matmul
 from .nn import Linear
+from .dataset import synthetic_data

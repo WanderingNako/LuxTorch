@@ -49,6 +49,9 @@ class Tensor(Variable):
         return b
     
     # Functions
+    def __len__(self):
+        return self._tensor.shape[0]
+    
     def __add__(self, b):
         return self.backend.Add.apply(self, self._ensure_tensor(b))
     
@@ -108,6 +111,9 @@ class Tensor(Variable):
     
     def sum(self, dim=None):
         return self.backend.Sum.apply(self, dim)
+    
+    def max(self, dim=None):
+        return self.backend.Max.apply(self, dim)
     
     def mean(self, dim=None):
         "Compute the mean over dimension `dim`"

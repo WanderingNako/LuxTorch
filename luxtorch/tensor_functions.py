@@ -55,6 +55,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
     # Reduce
     add_reduce = tensor_ops.reduce(operators.add, 0.0)
     mul_reduce = tensor_ops.reduce(operators.mul, 1.0)
+    max_reduce = tensor_ops.reduce(operators.max, -1e9)
 
     class Backend:
         cuda = is_cuda
@@ -267,6 +268,26 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                     tensor_ops.matrix_multiply(transpose(t1), grad_output)
                 )
         
+        class Max(Function):
+            @staticmethod
+            def forward(ctx, a, dim):
+                ctx.save_for_backward(a, dim)
+                if dim is not None:
+                    return max_reduce(a, dim)
+                else:
+                    return max_reduce(
+                        a.contiguous().view(int(operators.prod(a.shape))), 0
+                    )
+            
+            @staticmethod
+            def backward(ctx, grad_output):
+                a, dim = ctx.saved_values
+                if dim is None:
+                    out = grad_output.zeros(a.shape)
+                    out._tensor._storage[:] = grad_output[0] * argmax(a)
+                return grad_output * argmax(a, dim)
+
+        
     return Backend
             
 TensorFunctions = make_tensor_backend(TensorOps)
@@ -297,6 +318,23 @@ def rand(shape, backend=TensorFunctions, requires_grad=False):
         :class:`Tensor` : new tensor
     """
     vals = [random.random() for _ in range(int(operators.prod(shape)))]
+    tensor = Tensor.make(vals, shape, backend=backend)
+    tensor.requires_grad_(requires_grad)
+    return tensor
+
+def normal(mean, std, shape, backend=TensorFunctions, requires_grad=False):
+    """
+    Produce a random tensor of size `shape`.
+
+    Args:
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+        requires_grad (bool): turn on autodifferentiation
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    vals = [random.normalvariate(mu=mean, sigma=std) for _ in range(int(operators.prod(shape)))]
     tensor = Tensor.make(vals, shape, backend=backend)
     tensor.requires_grad_(requires_grad)
     return tensor
@@ -346,3 +384,34 @@ def tensor(ls, backend=TensorFunctions, requires_grad=False):
     cur = flatten(ls)
     shape = gen_shape(ls)
     return _tensor(cur, tuple(shape), backend=backend, requires_grad=requires_grad)
+
+def matmul(t1, t2):
+    """
+    Matrix multiply two tensors.
+
+    Args:
+        t1 (:class:`Tensor`): first tensor
+        t2 (:class:`Tensor`): second tensor
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    return TensorFunctions.MatMul.apply(t1, t2)
+
+def argmax(t1, dim=None):
+    """
+    Returns the index of the maximum value along a given dimension.
+
+    Args:
+        t1 (:class:`Tensor`): input tensor
+        dim (int): dimension to reduce
+
+    Returns:
+        :class:`Tensor` : new tensor with the index of the maximum value along the given dimension
+    """
+    if dim is None:
+        flatten = t1.contiguous().view(int(operators.prod(t1.shape)))
+        out = TensorOps.reduce(operators.max, -1e9)(flatten, 0)
+    else:
+        out = TensorOps.reduce(operators.max, -1e9)(t1, dim)
+    return out == t1
