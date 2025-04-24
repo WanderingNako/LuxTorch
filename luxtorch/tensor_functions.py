@@ -315,8 +315,8 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                 a, mu, dim = ctx.saved_values
                 if dim is None:
                     out = grad_output.zeros(a.shape)
-                    out._tensor._storage[:] = grad_output[0] * (((a - mu) * 2.0 + 1.0) / a.size)
-                return grad_output * (((a - mu) * 2.0 + 1.0) / a.shape[dim])
+                    out._tensor._storage[:] = grad_output[0] * (((a - mu) * 2.0) / a.size)
+                return grad_output * (((a - mu) * 2.0) / a.shape[dim])
 
         
     return Backend

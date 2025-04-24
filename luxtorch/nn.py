@@ -1,5 +1,6 @@
 from .module import Module, Parameter
-from .tensor_functions import rand, zeros, tensor, normal, ones, dropout
+from .tensor_functions import rand, zeros, tensor, normal, ones, dropout, softmax
+import math
 
 class Linear(Module):
     def __init__(self, in_size, out_size):
@@ -57,3 +58,23 @@ class LayerNorm(Module):
         std  = x.std(dim=-1)
         x_hat = (x -mean) / (std + self.eps).sqrt()
         return self.gamma.value * x_hat + self.beta.value
+    
+class SelfAttention(Module):
+    def __init__(self, num_hiddens):
+        super().__init__()
+        self.num_hiddens = num_hiddens
+        self.WQ = Linear(num_hiddens, num_hiddens)
+        self.WK = Linear(num_hiddens, num_hiddens)
+        self.WV = Linear(num_hiddens, num_hiddens)
+
+    def forward(self, x):
+        # x.shape = [seq_length, num_hiddens]
+        Q = self.WQ(x)
+        K = self.WK(x)
+        V = self.WV(x)
+
+        attention_score = (Q @ (K.permute(1, 0))) / math.sqrt(self.num_hiddens)
+        attention_weights = softmax(attention_score, -1)
+        out = attention_weights @ V
+
+        return out
